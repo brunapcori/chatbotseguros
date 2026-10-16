@@ -1,6 +1,6 @@
 """
 Consultor Virtual Especialista em Seguros com RAG
-Licença MIT - Streamlit + Google GenAI + RAG Local
+Desenvolvido em Streamlit com integração Microsoft Foundry / Azure AI
 """
 
 import io
@@ -10,8 +10,15 @@ import streamlit as st
 from pypdf import PdfReader
 from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers import SentenceTransformer
-from google import genai
-from google.genai import types
+from openai import AzureOpenAI
+
+# ---------------------------------------------------------
+# Configurações do Microsoft Foundry / Azure AI
+# ---------------------------------------------------------
+DEFAULT_AZURE_ENDPOINT = "https://marcelomaffeis-05082026-resource.services.ai.azure.com/"
+DEFAULT_AZURE_API_KEY = "6t2pTNsmNafDyo53MDAFIrvvQRBZXP7dLcr5j3TLxMS34LQVq3ZUJQQJ99CHACHYHv6XJ3w3AAAAACOGT7os"
+DEFAULT_AZURE_MODEL = "gpt-4.1-mini"
+AZURE_API_VERSION = "2024-06-01"
 
 # ---------------------------------------------------------
 # Configuração da Página
@@ -28,7 +35,6 @@ st.set_page_config(
 # ---------------------------------------------------------
 @st.cache_resource(show_spinner="A carregar modelo de embeddings local...")
 def load_embedding_model():
-    # Modelo multilíngue leve e otimizado para CPU
     return SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
 
 
@@ -54,7 +60,7 @@ def extract_text_from_file(uploaded_file) -> str:
 
 
 def split_text_into_chunks(text: str, chunk_size: int = 700, chunk_overlap: int = 100) -> list[str]:
-    """Divide texto em blocos menores preservando sobreposição contextual."""
+    """Divide o texto em blocos menores preservando sobreposição contextual."""
     if not text.strip():
         return []
     words = text.split()
@@ -68,7 +74,7 @@ def split_text_into_chunks(text: str, chunk_size: int = 700, chunk_overlap: int 
 
 
 def retrieve_relevant_chunks(query: str, top_k: int = 3) -> list[str]:
-    """Recupera os blocos mais similares à pergunta do utilizador."""
+    """Recupera os blocos mais similares à pergunta colocada."""
     if "rag_chunks" not in st.session_state or not st.session_state["rag_chunks"]:
         return []
 
@@ -79,8 +85,7 @@ def retrieve_relevant_chunks(query: str, top_k: int = 3) -> list[str]:
     similarities = cosine_similarity(query_vector, doc_vectors)[0]
     top_indices = np.argsort(similarities)[::-1][:top_k]
 
-    # Retorna apenas blocos com relevância aceitável
-    relevant = [st.session_state["rag_chunks"][idx] for idx in top_indices if similarities[idx] > 0.2]
+    relevant = [st.session_state["rag_chunks"][idx] for idx in top_indices if similarities[idx] > 0.15]
     return relevant
 
 
@@ -88,58 +93,39 @@ def retrieve_relevant_chunks(query: str, top_k: int = 3) -> list[str]:
 # Engenharia de Prompt (System Instruction)
 # ---------------------------------------------------------
 SYSTEM_INSTRUCTION = (
-    "Você é o 'SegurAI', um consultor técnico e subscritor sênior especialista no mercado segurador brasileiro e internacional.\n"
-    "Sua missão é auxiliar corretores, analistas corporativos, gestores de risco e segurados em dúvidas técnicas, operacionais e conceituais de seguros.\n\n"
+    "Você é o 'SegurAI', um consultor técnico e subscritor sénior especialista no mercado segurador brasileiro e internacional.\n"
+    "A sua missão é apoiar corretores, analistas corporativos, gestores de risco e segurados em dúvidas técnicas, operacionais e conceituais de seguros.\n\n"
     "Diretrizes RAG:\n"
-    "- Quando forem fornecidos 'Trechos do Documento Carregado', dê prioridade máxima aos factos e cláusulas contidos neles.\n"
-    "- Se a resposta constar expressamente no documento, cite as regras ou parâmetros encontrados.\n"
-    "- Se o documento não cobrir o assunto em questão, complemente tecnicamente com o seu conhecimento padrão de mercado (SUSEP, boas práticas, franquias, POS, etc.), alertando claramente o utilizador de que aquela informação advém da prática geral e não do ficheiro carregado.\n\n"
+    "- Quando forem fornecidos 'Trechos do Documento Carregado', dê prioridade máxima aos factos, cláusulas e números contidos neles.\n"
+    "- Se a resposta constar expressamente no documento (como manuais SUSEP, apólices, condições gerais), cite as regras ou parâmetros encontrados.\n"
+    "- Se o documento não cobrir o assunto em questão, complemente tecnicamente com o seu conhecimento padrão de mercado (SUSEP, boas práticas, franquias, POS, etc.), alertando claramente o utilizador de que aquela informação advém da prática geral e não do documento carregado.\n\n"
     "Tom de voz:\n"
     "- Profissional, analítico, estruturado e objetivo em Português."
 )
 
 # ---------------------------------------------------------
-# Obtenção da API Key
-# ---------------------------------------------------------
-def get_api_key() -> str:
-    api_key = os.getenv("GEMINI_API_KEY", "")
-    if not api_key and hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
-        api_key = st.secrets["GEMINI_API_KEY"]
-    return api_key
-
-
-api_key_default = get_api_key()
-
-# ---------------------------------------------------------
-# Barra Lateral (Sidebar) com Upload de Ficheiro RAG
+# Barra Lateral (Sidebar)
 # ---------------------------------------------------------
 with st.sidebar:
     st.title("🛡️ SegurAI Analytics")
-    st.caption("Assistente Técnico de Riscos & RAG")
+    st.caption("Microsoft Foundry / Azure AI Edition")
     st.markdown("---")
 
-    # Autenticação
-    if not api_key_default:
-        st.subheader("🔑 Autenticação")
-        user_key = st.text_input(
-            "Gemini API Key:",
-            type="password",
-            help="Insira a sua chave do Google AI Studio.",
-        )
-        api_key_to_use = user_key.strip()
-    else:
-        api_key_to_use = api_key_default
-        st.success("API Key detetada!")
+    # Autenticação e Configuração
+    st.subheader("⚙️ Configurações do Foundry")
+    api_endpoint = st.text_input("Endpoint:", value=DEFAULT_AZURE_ENDPOINT)
+    api_key = st.text_input("API Key:", value=DEFAULT_AZURE_API_KEY, type="password")
+    model_deployment = st.text_input("Modelo / Deployment:", value=DEFAULT_AZURE_MODEL)
 
     st.markdown("---")
 
     # Módulo RAG: Upload de Documentos
     st.subheader("📄 Base Documental (RAG)")
     uploaded_files = st.file_uploader(
-        "Carregue Apólices, Condições Gerais ou Relatórios:",
+        "Carregue Apólices, Manuais ou Relatórios:",
         type=["pdf", "txt", "csv"],
         accept_multiple_files=True,
-        help="Permite ao assistente consultar e citar cláusulas do seu próprio documento.",
+        help="Permite ao assistente consultar e citar cláusulas do documento.",
     )
 
     if st.button("Indexar Ficheiro(s)", use_container_width=True, type="primary"):
@@ -165,7 +151,7 @@ with st.sidebar:
 
     if st.session_state.get("doc_loaded"):
         st.info("🟢 Documento ativo na memória RAG.")
-        if st.button("Remover Documento da Memória"):
+        if st.button("Remover Documento da Memória", use_container_width=True):
             st.session_state.pop("rag_chunks", None)
             st.session_state.pop("rag_embeddings", None)
             st.session_state["doc_loaded"] = False
@@ -173,13 +159,13 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # Tópicos Rápidos
+    # Sugestões Rápidas
     st.subheader("💡 Sugestões Rápidas")
     sugestoes = [
-        "Resuma as principais exclusões do documento carregado",
-        "Qual é o valor da franquia ou POS indicado na apólice?",
-        "Diferença entre D&O e E&O na prática",
-        "Como funciona a regulação de um sinistro?",
+        "Qual é o prazo regulamentar de liquidação de sinistros segundo a SUSEP?",
+        "Qual a diferença entre LMI e LMG segundo o manual?",
+        "O que diz o documento sobre a suspensão de prazo de regulação?",
+        "Quais as garantias típicas de Riscos de Engenharia?",
     ]
     for s in sugestoes:
         if st.button(s, use_container_width=True):
@@ -191,15 +177,16 @@ with st.sidebar:
         st.rerun()
 
 # ---------------------------------------------------------
-# Inicialização de Sessão
+# Histórico de Sessão
 # ---------------------------------------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {
             "role": "assistant",
             "content": (
-                "Olá! Sou o seu Consultor Virtual de Seguros. Pode colocar questões conceituais "
-                "ou carregar as suas apólices e relatórios em PDF na barra lateral para analisarmos cláusulas específicas juntos."
+                "Olá! Sou o seu Consultor Virtual de Seguros alimentado pelo modelo "
+                f"**{model_deployment}** via Microsoft Foundry. Carregue as suas apólices ou manuais "
+                "para conversarmos com suporte RAG!"
             ),
         }
     ]
@@ -215,25 +202,25 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"], avatar=avatar):
         st.markdown(msg["content"])
 
-prompt_input = st.chat_input("Coloque a sua dúvida sobre o mercado ou sobre o ficheiro carregado...")
+prompt_input = st.chat_input("Coloque a sua dúvida sobre o mercado ou sobre o manual indexado...")
 if "pending_prompt" in st.session_state and st.session_state["pending_prompt"]:
     active_prompt = st.session_state.pop("pending_prompt")
 else:
     active_prompt = prompt_input
 
 # ---------------------------------------------------------
-# Processamento com Recuperação RAG + Streaming
+# Processamento com AzureOpenAI + Streaming
 # ---------------------------------------------------------
 if active_prompt:
-    if not api_key_to_use:
-        st.error("⚠️ Insira a chave da API Gemini na barra lateral ou em secrets para prosseguir.")
+    if not api_key or not api_endpoint:
+        st.warning("⚠️ Forneça o Endpoint e a API Key na barra lateral para prosseguir.")
     else:
-        # 1. Regista mensagem do utilizador
+        # 1. Regista pergunta do utilizador
         st.session_state.messages.append({"role": "user", "content": active_prompt})
         with st.chat_message("user", avatar="👤"):
             st.markdown(active_prompt)
 
-        # 2. Busca de contexto via RAG (se houver documento ativo)
+        # 2. Recupera contexto via RAG
         relevant_chunks = retrieve_relevant_chunks(active_prompt, top_k=3)
         context_block = ""
         if relevant_chunks:
@@ -242,54 +229,50 @@ if active_prompt:
                 context_block += f"[Bloco {i}]:\n{chunk}\n\n"
             context_block += "--- [FIM DO CONTEXTO DOCUMENTAL] ---\n"
 
-        # 3. Monta histórico estruturado para o SDK
-        contents_payload = []
-        for m in st.session_state.messages[:-1]:
-            role_tag = "user" if m["role"] == "user" else "model"
-            contents_payload.append(
-                types.Content(
-                    role=role_tag,
-                    parts=[types.Part.from_text(text=m["content"])],
-                )
-            )
+        # 3. Monta mensagens no formato padrão OpenAI / Azure
+        messages_payload = [{"role": "system", "content": SYSTEM_INSTRUCTION}]
 
-        # Na mensagem atual do utilizador, injeta o contexto recuperado
-        final_user_content = active_prompt
+        for m in st.session_state.messages[:-1]:
+            messages_payload.append({"role": m["role"], "content": m["content"]})
+
+        final_prompt = active_prompt
         if context_block:
-            final_user_content = (
+            final_prompt = (
                 f"{active_prompt}\n\n"
                 f"Considere os seguintes trechos retirados dos ficheiros carregados para fundamentar a resposta:\n"
                 f"{context_block}"
             )
 
-        contents_payload.append(
-            types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=final_user_content)],
-            )
-        )
+        messages_payload.append({"role": "user", "content": final_prompt})
 
-        # 4. Geração com Streaming
+        # 4. Chamada com streaming ao modelo do Microsoft Foundry
         with st.chat_message("assistant", avatar="🛡️"):
             try:
-                client = genai.Client(api_key=api_key_to_use)
+                # Sanitiza o endpoint (remove eventuais aspas ou barras finais duplicadas)
+                clean_endpoint = api_endpoint.strip().rstrip('"').rstrip("/")
 
-                response_stream = client.models.generate_content_stream(
-                    model="gemini-2.5-flash",
-                    contents=contents_payload,
-                    config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM_INSTRUCTION,
-                        temperature=0.2,  # Baixa temperatura para fidelidade aos documentos
-                    ),
+                client = AzureOpenAI(
+                    azure_endpoint=clean_endpoint,
+                    api_key=api_key.strip(),
+                    api_version=AZURE_API_VERSION,
+                )
+
+                response_stream = client.chat.completions.create(
+                    model=model_deployment.strip(),
+                    messages=messages_payload,
+                    temperature=0.2,
+                    stream=True,
                 )
 
                 def stream_generator():
                     for chunk in response_stream:
-                        if chunk.text:
-                            yield chunk.text
+                        if chunk.choices and len(chunk.choices) > 0:
+                            delta = chunk.choices[0].delta.content
+                            if delta:
+                                yield delta
 
                 full_response = st.write_stream(stream_generator())
                 st.session_state.messages.append({"role": "assistant", "content": full_response})
 
             except Exception as e:
-                st.error(f"Erro ao processar a resposta: {str(e)}")
+                st.error(f"Erro ao comunicar com o Microsoft Foundry: {str(e)}")
