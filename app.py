@@ -274,4 +274,22 @@ if active_prompt:
             try:
                 client = genai.Client(api_key=api_key_to_use)
 
-                response
+                response_stream = client.models.generate_content_stream(
+                    model="gemini-2.5-flash",
+                    contents=contents_payload,
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM_INSTRUCTION,
+                        temperature=0.2,  # Baixa temperatura para fidelidade aos documentos
+                    ),
+                )
+
+                def stream_generator():
+                    for chunk in response_stream:
+                        if chunk.text:
+                            yield chunk.text
+
+                full_response = st.write_stream(stream_generator())
+                st.session_state.messages.append({"role": "assistant", "content": full_response})
+
+            except Exception as e:
+                st.error(f"Erro ao processar a resposta: {str(e)}")
