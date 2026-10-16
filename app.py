@@ -1,6 +1,6 @@
 """
-Consultor Virtual Especialista em Seguros com RAG
-Desenvolvido em Streamlit com integração Microsoft Foundry / Azure AI
+Sistema de Inteligência Regulatória e Técnica de Seguros
+Padrão Visual Institucional / SUSEP - Integrado ao Microsoft Foundry
 """
 
 import io
@@ -21,28 +21,117 @@ DEFAULT_AZURE_MODEL = "gpt-4.1-mini"
 AZURE_API_VERSION = "2024-06-01"
 
 # ---------------------------------------------------------
-# Configuração da Página
+# Configuração da Página e Layout
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="Consultor de Seguros AI (RAG)",
-    page_icon="🛡️",
+    page_title="Portal de Análise Técnica de Seguros | Padrão SUSEP",
+    page_icon="⚖️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # ---------------------------------------------------------
+# Estilização CSS Corporativa (Inspirada no Padrão Digital Gov / SUSEP)
+# ---------------------------------------------------------
+st.markdown(
+    """
+    <style>
+    /* Tipografia e Fundo */
+    @import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;600;700&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    /* Barra Superior Institucional */
+    .gov-header {
+        background-color: #071D41;
+        padding: 18px 24px;
+        border-radius: 4px;
+        margin-bottom: 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 3px solid #FFCD07;
+    }
+    .gov-title {
+        color: #FFFFFF;
+        font-size: 1.25rem;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        margin: 0;
+    }
+    .gov-subtitle {
+        color: #A6B4C9;
+        font-size: 0.82rem;
+        margin-top: 3px;
+    }
+    .gov-badge {
+        background-color: #0C326F;
+        color: #E2E8F0;
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 6px 14px;
+        border-radius: 3px;
+        border: 1px solid #1E4E98;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+    }
+
+    /* Cards e Caixas Informativas */
+    .corp-card {
+        background-color: #F8FAFC;
+        border-left: 4px solid #071D41;
+        border-radius: 0 4px 4px 0;
+        padding: 14px 18px;
+        margin-bottom: 18px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        color: #334155;
+        font-size: 0.9rem;
+    }
+    
+    .badge-rag-active {
+        display: inline-flex;
+        align-items: center;
+        background-color: #E6F4EA;
+        color: #137333;
+        font-size: 0.8rem;
+        font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 4px;
+        border: 1px solid #CEEAD6;
+    }
+
+    /* Ajuste de Botões para Estilo Corporativo */
+    div.stButton > button:first-child {
+        border-radius: 4px;
+        font-weight: 600;
+        font-size: 0.85rem;
+        transition: all 0.2s ease-in-out;
+    }
+
+    /* Linha divisória suave */
+    hr {
+        margin: 1rem 0;
+        border-color: #E2E8F0;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ---------------------------------------------------------
 # Modelo de Embeddings Local (Cache para performance)
 # ---------------------------------------------------------
-@st.cache_resource(show_spinner="A carregar modelo de embeddings local...")
+@st.cache_resource(show_spinner="Carregando modelo vetorial de conformidade...")
 def load_embedding_model():
     return SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
 
 
 # ---------------------------------------------------------
-# Funções de Leitura e Fragmentação de Documentos
+# Processamento de Documentos
 # ---------------------------------------------------------
 def extract_text_from_file(uploaded_file) -> str:
-    """Extrai texto de PDF, TXT ou CSV."""
     text = ""
     filename = uploaded_file.name.lower()
     try:
@@ -55,12 +144,11 @@ def extract_text_from_file(uploaded_file) -> str:
         elif filename.endswith(".txt") or filename.endswith(".csv"):
             text = uploaded_file.read().decode("utf-8", errors="ignore")
     except Exception as e:
-        st.error(f"Erro ao processar o ficheiro {uploaded_file.name}: {e}")
+        st.error(f"Falha ao ler o arquivo {uploaded_file.name}: {e}")
     return text
 
 
 def split_text_into_chunks(text: str, chunk_size: int = 700, chunk_overlap: int = 100) -> list[str]:
-    """Divide o texto em blocos menores preservando sobreposição contextual."""
     if not text.strip():
         return []
     words = text.split()
@@ -74,7 +162,6 @@ def split_text_into_chunks(text: str, chunk_size: int = 700, chunk_overlap: int 
 
 
 def retrieve_relevant_chunks(query: str, top_k: int = 3) -> list[str]:
-    """Recupera os blocos mais similares à pergunta colocada."""
     if "rag_chunks" not in st.session_state or not st.session_state["rag_chunks"]:
         return []
 
@@ -85,52 +172,53 @@ def retrieve_relevant_chunks(query: str, top_k: int = 3) -> list[str]:
     similarities = cosine_similarity(query_vector, doc_vectors)[0]
     top_indices = np.argsort(similarities)[::-1][:top_k]
 
-    relevant = [st.session_state["rag_chunks"][idx] for idx in top_indices if similarities[idx] > 0.15]
-    return relevant
+    return [st.session_state["rag_chunks"][idx] for idx in top_indices if similarities[idx] > 0.15]
 
 
 # ---------------------------------------------------------
-# Engenharia de Prompt (System Instruction)
+# Instrução do Sistema (Diretrizes Regulatórias)
 # ---------------------------------------------------------
 SYSTEM_INSTRUCTION = (
-    "Você é o 'SegurAI', um consultor técnico e subscritor sénior especialista no mercado segurador brasileiro e internacional.\n"
-    "A sua missão é apoiar corretores, analistas corporativos, gestores de risco e segurados em dúvidas técnicas, operacionais e conceituais de seguros.\n\n"
-    "Diretrizes RAG:\n"
-    "- Quando forem fornecidos 'Trechos do Documento Carregado', dê prioridade máxima aos factos, cláusulas e números contidos neles.\n"
-    "- Se a resposta constar expressamente no documento (como manuais SUSEP, apólices, condições gerais), cite as regras ou parâmetros encontrados.\n"
-    "- Se o documento não cobrir o assunto em questão, complemente tecnicamente com o seu conhecimento padrão de mercado (SUSEP, boas práticas, franquias, POS, etc.), alertando claramente o utilizador de que aquela informação advém da prática geral e não do documento carregado.\n\n"
-    "Tom de voz:\n"
-    "- Profissional, analítico, estruturado e objetivo em Português."
+    "Você atua como um Consultor Técnico e Regulatório Sênior de Seguros, fundamentado no arcabouço normativo "
+    "do Sistema Nacional de Seguros Privados (SNSP), nas Resoluções CNSP, Circulares da SUSEP e no Código Civil Brasileiro.\n\n"
+    "Princípios de Resposta:\n"
+    "1. Fidelidade Documental (RAG):\n"
+    "   - Havendo 'Trechos dos Documentos Indexados', priorize-os categoricamente, referenciando prazos, cláusulas e limites.\n"
+    "   - Diferencie explicitamente o que está disposto no documento carregado daquilo que é norma geral de mercado.\n"
+    "2. Rigor Técnico e Terminologia:\n"
+    "   - Utilize com precisão os conceitos de LMI, LMG, POS, Franquias Simples e Dedutíveis, Sub-rogação, Cosseguro e Resseguro.\n"
+    "   - Mencione os artigos ou circulares pertinentes quando aplicável (ex.: Circular SUSEP 621, Decreto-Lei 73/66).\n"
+    "3. Estilo e Tom:\n"
+    "   - Postura executiva, objetiva, imparcial e formal em Português do Brasil.\n"
+    "   - Organize explicações complexas em seções bem delimitadas e listas analíticas."
 )
 
 # ---------------------------------------------------------
-# Barra Lateral (Sidebar)
+# Barra Lateral Institucional
 # ---------------------------------------------------------
 with st.sidebar:
-    st.title("🛡️ SegurAI Analytics")
-    st.caption("Microsoft Foundry / Azure AI Edition")
+    st.markdown("### 🏛️ Painel de Controle")
+    st.caption("Sistema de Inteligência Normativa & Sinistros")
     st.markdown("---")
 
-    # Autenticação e Configuração
-    st.subheader("⚙️ Configurações do Foundry")
-    api_endpoint = st.text_input("Endpoint:", value=DEFAULT_AZURE_ENDPOINT)
-    api_key = st.text_input("API Key:", value=DEFAULT_AZURE_API_KEY, type="password")
-    model_deployment = st.text_input("Modelo / Deployment:", value=DEFAULT_AZURE_MODEL)
-
-    st.markdown("---")
-
-    # Módulo RAG: Upload de Documentos
-    st.subheader("📄 Base Documental (RAG)")
+    # Módulo RAG
+    st.markdown("#### 📂 Repositório Documental (RAG)")
     uploaded_files = st.file_uploader(
-        "Carregue Apólices, Manuais ou Relatórios:",
+        "Selecione Manuais, Apólices ou Circulares:",
         type=["pdf", "txt", "csv"],
         accept_multiple_files=True,
-        help="Permite ao assistente consultar e citar cláusulas do documento.",
+        help="Permite a verificação semântica cruzada com a documentação fornecida.",
     )
 
-    if st.button("Indexar Ficheiro(s)", use_container_width=True, type="primary"):
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        index_clicked = st.button("📥 Indexar", use_container_width=True, type="primary")
+    with col_btn2:
+        clear_doc_clicked = st.button("🗑️ Descartar", use_container_width=True)
+
+    if index_clicked:
         if uploaded_files:
-            with st.spinner("A indexar documentos..."):
+            with st.spinner("Processando e vetorizando documentos..."):
                 all_text = ""
                 for up_file in uploaded_files:
                     all_text += extract_text_from_file(up_file) + "\n"
@@ -143,38 +231,78 @@ with st.sidebar:
                     st.session_state["rag_chunks"] = chunks
                     st.session_state["rag_embeddings"] = embeddings
                     st.session_state["doc_loaded"] = True
-                    st.success(f"{len(chunks)} blocos indexados com sucesso!")
+                    st.session_state["doc_name"] = ", ".join([f.name for f in uploaded_files])
+                    st.success(f"{len(chunks)} fragmentos normativos indexados.")
                 else:
-                    st.warning("Não foi possível extrair texto dos ficheiros enviados.")
+                    st.warning("Não foi possível extrair conteúdo textual dos arquivos.")
         else:
-            st.info("Selecione pelo menos um ficheiro antes de indexar.")
+            st.info("Nenhum arquivo anexado para indexação.")
+
+    if clear_doc_clicked and st.session_state.get("doc_loaded"):
+        st.session_state.pop("rag_chunks", None)
+        st.session_state.pop("rag_embeddings", None)
+        st.session_state["doc_loaded"] = False
+        st.rerun()
 
     if st.session_state.get("doc_loaded"):
-        st.info("🟢 Documento ativo na memória RAG.")
-        if st.button("Remover Documento da Memória", use_container_width=True):
-            st.session_state.pop("rag_chunks", None)
-            st.session_state.pop("rag_embeddings", None)
-            st.session_state["doc_loaded"] = False
-            st.rerun()
+        st.markdown(
+            f"<div class='badge-rag-active'>✓ Base ativa: {st.session_state.get('doc_name', 'Documento')}</div>",
+            unsafe_allow_html=True,
+        )
 
     st.markdown("---")
 
-    # Sugestões Rápidas
-    st.subheader("💡 Sugestões Rápidas")
-    sugestoes = [
-        "Qual é o prazo regulamentar de liquidação de sinistros segundo a SUSEP?",
-        "Qual a diferença entre LMI e LMG segundo o manual?",
-        "O que diz o documento sobre a suspensão de prazo de regulação?",
-        "Quais as garantias típicas de Riscos de Engenharia?",
+    # Consultas Padronizadas
+    st.markdown("#### 📋 Consultas Regulatórias Rápidas")
+    consultas = [
+        "Qual o prazo regulamentar para liquidação de sinistros pela SUSEP?",
+        "Qual o tratamento da SUSEP para suspensão de prazo de sinistro?",
+        "Diferença entre LMI (Limite Máximo de Indenização) e LMG na apólice",
+        "Como funciona a Cláusula de Sub-rogação de Direitos?",
     ]
-    for s in sugestoes:
-        if st.button(s, use_container_width=True):
-            st.session_state["pending_prompt"] = s
+    for consulta in consultas:
+        if st.button(consulta, use_container_width=True):
+            st.session_state["pending_prompt"] = consulta
 
     st.markdown("---")
-    if st.button("🧹 Limpar Conversa", use_container_width=True):
+
+    # Configurações do Foundry / Azure (em Expander para manter a sobriedade)
+    with st.expander("⚙️ Parâmetros do Microsoft Foundry", expanded=False):
+        api_endpoint = st.text_input("Endpoint do Serviço:", value=DEFAULT_AZURE_ENDPOINT)
+        api_key = st.text_input("Chave Primária (API Key):", value=DEFAULT_AZURE_API_KEY, type="password")
+        model_deployment = st.text_input("Modelo Implantado:", value=DEFAULT_AZURE_MODEL)
+
+    if st.button("🔄 Reiniciar Sessão de Análise", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
+
+# ---------------------------------------------------------
+# Cabeçalho Principal (Estilo Governamental / Institucional)
+# ---------------------------------------------------------
+st.markdown(
+    """
+    <div class="gov-header">
+        <div>
+            <div class="gov-title">PORTAL DE INTELIGÊNCIA TÉCNICA E REGULATÓRIA EM SEGUROS</div>
+            <div class="gov-subtitle">Supervisão Técnica de Ramos Corporativos, Apólices e Procedimentos de Regulação</div>
+        </div>
+        <div class="gov-badge">Conformidade SNSP / SUSEP</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Card informativo institucional
+st.markdown(
+    """
+    <div class="corp-card">
+        <b>Ambiente de Consulta Especializada:</b> Utilize este módulo para analisar condições contratuais, 
+        prazos de liquidação de sinistros, cálculos de franquias/POS e enquadramento regulatório.
+        Para verificação pontual de apólices ou minutas, indexe o documento no painel lateral.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ---------------------------------------------------------
 # Histórico de Sessão
@@ -184,54 +312,45 @@ if "messages" not in st.session_state:
         {
             "role": "assistant",
             "content": (
-                "Olá! Sou o seu Consultor Virtual de Seguros alimentado pelo modelo "
-                f"**{model_deployment}** via Microsoft Foundry. Carregue as suas apólices ou manuais "
-                "para conversarmos com suporte RAG!"
+                "Bem-vindo ao canal corporativo de suporte técnico e regulatório de seguros. "
+                "Estou pronto para analisar termos de apólices, sinistros e normativas do setor. "
+                "Caso deseje uma análise personalizada, indexe o documento correspondente na barra lateral."
             ),
         }
     ]
 
-# ---------------------------------------------------------
-# Interface Principal de Chat
-# ---------------------------------------------------------
-st.title("Consultor Virtual Especialista em Seguros")
-st.markdown("Análise técnica de termos de mercado, gestão de sinistros e consulta a documentos indexados via **RAG**.")
-
 for msg in st.session_state.messages:
-    avatar = "🛡️" if msg["role"] == "assistant" else "👤"
+    avatar = "⚖️" if msg["role"] == "assistant" else "👤"
     with st.chat_message(msg["role"], avatar=avatar):
         st.markdown(msg["content"])
 
-prompt_input = st.chat_input("Coloque a sua dúvida sobre o mercado ou sobre o manual indexado...")
+prompt_input = st.chat_input("Digite a consulta técnica, cláusula de apólice ou questão regulatória...")
 if "pending_prompt" in st.session_state and st.session_state["pending_prompt"]:
     active_prompt = st.session_state.pop("pending_prompt")
 else:
     active_prompt = prompt_input
 
 # ---------------------------------------------------------
-# Processamento com AzureOpenAI + Streaming
+# Processamento e Streaming com AzureOpenAI
 # ---------------------------------------------------------
 if active_prompt:
     if not api_key or not api_endpoint:
-        st.warning("⚠️ Forneça o Endpoint e a API Key na barra lateral para prosseguir.")
+        st.warning("⚠️ Parâmetros de autenticação do Microsoft Foundry incompletos. Verifique a barra lateral.")
     else:
-        # 1. Regista pergunta do utilizador
         st.session_state.messages.append({"role": "user", "content": active_prompt})
         with st.chat_message("user", avatar="👤"):
             st.markdown(active_prompt)
 
-        # 2. Recupera contexto via RAG
+        # Busca no acervo indexado
         relevant_chunks = retrieve_relevant_chunks(active_prompt, top_k=3)
         context_block = ""
         if relevant_chunks:
-            context_block = "\n\n--- [TRECHOS RELEVANTES DOS DOCUMENTOS CARREGADOS] ---\n"
+            context_block = "\n\n--- [TRECHOS EXTRAÍDOS DOS DOCUMENTOS REGULATÓRIOS/APÓLICES] ---\n"
             for i, chunk in enumerate(relevant_chunks, start=1):
-                context_block += f"[Bloco {i}]:\n{chunk}\n\n"
+                context_block += f"[Cláusula/Trecho {i}]:\n{chunk}\n\n"
             context_block += "--- [FIM DO CONTEXTO DOCUMENTAL] ---\n"
 
-        # 3. Monta mensagens no formato padrão OpenAI / Azure
         messages_payload = [{"role": "system", "content": SYSTEM_INSTRUCTION}]
-
         for m in st.session_state.messages[:-1]:
             messages_payload.append({"role": m["role"], "content": m["content"]})
 
@@ -239,16 +358,14 @@ if active_prompt:
         if context_block:
             final_prompt = (
                 f"{active_prompt}\n\n"
-                f"Considere os seguintes trechos retirados dos ficheiros carregados para fundamentar a resposta:\n"
+                f"Considere as disposições dos documentos indexados a seguir para fundamentar a análise:\n"
                 f"{context_block}"
             )
 
         messages_payload.append({"role": "user", "content": final_prompt})
 
-        # 4. Chamada com streaming ao modelo do Microsoft Foundry
-        with st.chat_message("assistant", avatar="🛡️"):
+        with st.chat_message("assistant", avatar="⚖️"):
             try:
-                # Sanitiza o endpoint (remove eventuais aspas ou barras finais duplicadas)
                 clean_endpoint = api_endpoint.strip().rstrip('"').rstrip("/")
 
                 client = AzureOpenAI(
@@ -260,7 +377,7 @@ if active_prompt:
                 response_stream = client.chat.completions.create(
                     model=model_deployment.strip(),
                     messages=messages_payload,
-                    temperature=0.2,
+                    temperature=0.1,  # Temperatura reduzida para máxima consistência técnica e regulatória
                     stream=True,
                 )
 
@@ -275,4 +392,4 @@ if active_prompt:
                 st.session_state.messages.append({"role": "assistant", "content": full_response})
 
             except Exception as e:
-                st.error(f"Erro ao comunicar com o Microsoft Foundry: {str(e)}")
+                st.error(f"Erro na comunicação com o Microsoft Foundry: {str(e)}")
